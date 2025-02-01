@@ -1,0 +1,61 @@
+version: '3'
+services:
+  etcd:
+    image: quay.io/coreos/etcd:latest
+    container_name: etcd
+    platform: linux/amd64
+    ports:
+      - "2379:2379"
+      - "2380:2380"
+    command: >
+      /usr/local/bin/etcd
+      --name=etcd-node
+      --listen-client-urls=http://0.0.0.0:2379
+      --advertise-client-urls=http://etcd:2379
+      --listen-peer-urls=http://0.0.0.0:2380
+      --initial-advertise-peer-urls=http://etcd:2380
+      --initial-cluster=etcd-node=http://etcd:2380
+      --initial-cluster-token=etcd-cluster
+      --initial-cluster-state=new
+  server1:
+    build: 
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: server1
+    environment:
+      - NODE_ID=server1
+      - ETCD_ENDPOINTS=etcd:2379
+      - GRPC_PORT=50051
+      - REST_PORT=8081
+    depends_on:
+      - etcd
+    ports:
+      - "8081:8081"
+  server2:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: server2
+    environment:
+      - NODE_ID=server2
+      - ETCD_ENDPOINTS=etcd:2379
+      - GRPC_PORT=50052
+      - REST_PORT=8082
+    depends_on:
+      - etcd
+    ports:
+      - "8082:8082"
+  server3:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: server3
+    environment:
+      - NODE_ID=server3
+      - ETCD_ENDPOINTS=etcd:2379
+      - GRPC_PORT=50053
+      - REST_PORT=8083
+    depends_on:
+      - etcd
+    ports:
+      - "8083:8083"
