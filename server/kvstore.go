@@ -1,12 +1,11 @@
 package server
 
 import (
-	"encoding/json"
 	"sort"
 	"sync"
 )
 
-// KVStore is a simple in-memory key–value store.
+// KVStore is a simple in-memory key-value store.
 type KVStore struct {
 	mu   sync.Mutex
 	data map[string]string
@@ -46,7 +45,7 @@ func (kv *KVStore) ListKeys() []string {
 	return keys
 }
 
-// GetRange returns key–value pairs for keys between start and end (inclusive).
+// GetRange returns key-value pairs for keys between start and end (inclusive).
 func (kv *KVStore) GetRange(start, end string) map[string]string {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
@@ -59,9 +58,13 @@ func (kv *KVStore) GetRange(start, end string) map[string]string {
 	return result
 }
 
-// Snapshot serializes the KVStore data (for log compaction).
-func (kv *KVStore) Snapshot() ([]byte, error) {
+// Snapshot returns a copy of the current state of the KVStore.
+func (kv *KVStore) Snapshot() (map[string]string, error) {
 	kv.mu.Lock()
 	defer kv.mu.Unlock()
-	return json.Marshal(kv.data)
+	stateCopy := make(map[string]string)
+	for k, v := range kv.data {
+		stateCopy[k] = v
+	}
+	return stateCopy, nil
 }

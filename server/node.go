@@ -10,6 +10,7 @@ import (
 	"go.etcd.io/etcd/client/v3/concurrency"
 )
 
+// Node represents a server node in the replicated log system.
 type Node struct {
 	ID          string
 	EtcdCli     *clientv3.Client
@@ -21,6 +22,7 @@ type Node struct {
 	isLeader    bool
 }
 
+// NewNode creates a new Node instance. It attempts to load a snapshot from etcd.
 func NewNode(id string, cli *clientv3.Client, grpcPort, restPort int) (*Node, error) {
 	sess, err := concurrency.NewSession(cli, concurrency.WithTTL(5))
 	if err != nil {
@@ -28,6 +30,12 @@ func NewNode(id string, cli *clientv3.Client, grpcPort, restPort int) (*Node, er
 	}
 	elect := concurrency.NewElection(sess, "/my-election/")
 	mp := NewMultiPaxos(id)
+
+	// Attempt to load snapshot from etcd under key "/snapshot".
+	if err := mp.LoadSnapshotFromEtcd(cli, "/snapshot"); err != nil {
+		fmt.Printf("Node %s: Error loading snapshot from etcd: %v\n", id, err)
+	}
+
 	return &Node{
 		ID:          id,
 		EtcdCli:     cli,
@@ -39,6 +47,7 @@ func NewNode(id string, cli *clientv3.Client, grpcPort, restPort int) (*Node, er
 	}, nil
 }
 
+// RunHeartbeats sends periodic heartbeats to etcd.
 func (n *Node) RunHeartbeats(ctx context.Context) {
 	leaseTTL := int64(5)
 	for {
@@ -79,6 +88,7 @@ func (n *Node) RunHeartbeats(ctx context.Context) {
 	}
 }
 
+// RunLeaderElection continuously campaigns for leadership.
 func (n *Node) RunLeaderElection(ctx context.Context) {
 	for {
 		select {
@@ -93,15 +103,12 @@ func (n *Node) RunLeaderElection(ctx context.Context) {
 			time.Sleep(1 * time.Second)
 			continue
 		}
-
 		n.isLeader = true
 		fmt.Printf("Node %s is leader!\n", n.ID)
-
-		// Write the leader's REST URL into etcd so that non-leader nodes can learn it.
+		// When elected leader, write the leader's REST URL into etcd.
 		if _, err := n.EtcdCli.Put(context.Background(), "/currentLeader", n.GetLocalRESTURL()); err != nil {
 			fmt.Printf("Error setting current leader in etcd: %v\n", err)
 		}
-
 		select {
 		case <-n.session.Done():
 			n.isLeader = false
@@ -116,35 +123,58 @@ func (n *Node) RunLeaderElection(ctx context.Context) {
 	}
 }
 
-
+// RunPaxosRPCServer is a placeholder for the internal gRPC server implementation.
 func (n *Node) RunPaxosRPCServer() {
-	// Placeholder for gRPC server implementation.
+	// In a full implementation, start your gRPC server here.
 }
 
+// RunRESTServer starts the REST API server.
 func (n *Node) RunRESTServer() {
 	StartHTTPServer(n.RestPort, n)
 }
 
+// IsLeader returns true if this node is the current leader.
 func (n *Node) IsLeader() bool {
 	return n.isLeader
 }
 
+// GetLeaderRESTURL queries etcd for the current leader's REST URL.
 func (n *Node) GetLeaderRESTURL() string {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
 	resp, err := n.EtcdCli.Get(ctx, "/currentLeader")
 	if err != nil || len(resp.Kvs) == 0 {
-		// If there’s an error or no leader is set, fallback to this node’s URL.
 		return n.GetLocalRESTURL()
 	}
 	return string(resp.Kvs[0].Value)
 }
+
+// GetLocalRESTURL returns this node's REST URL.
+// For Docker, we assume NODE_ID is the container name.
 func (n *Node) GetLocalRESTURL() string {
-	// Assuming your docker-compose service names match your NODE_ID and that
-	// containers can resolve each other by these names.
 	return "http://" + n.ID + ":" + strconv.Itoa(n.RestPort)
 }
 
+// GetPaxosEngine returns the node's MultiPaxos instance.
 func (n *Node) GetPaxosEngine() *MultiPaxos {
 	return n.PaxosEngine
+}
+
+// RunSnapshotting periodically takes a snapshot and stores it in etcd.
+func (n *Node) RunSnapshotting(ctx context.Context) {
+	ticker := time.NewTicker(30 * time.Second) // adjust the interval as needed
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			err := n.PaxosEngine.SaveSnapshotToEtcd(n.EtcdCli, "/snapshot")
+			if err != nil {
+				fmt.Printf("Error saving snapshot to etcd: %v\n", err)
+			} else {
+				fmt.Printf("Snapshot saved to etcd successfully.\n")
+			}
+		}
+	}
 }

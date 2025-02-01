@@ -58,6 +58,7 @@ func main() {
 	go node.RunLeaderElection(ctx)
 	go node.RunPaxosRPCServer()
 	go node.RunRESTServer()
+	go node.RunSnapshotting(ctx) // Start periodic snapshotting
 
 	select {}
 }
